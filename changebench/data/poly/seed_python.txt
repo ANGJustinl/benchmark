@@ -1,0 +1,107 @@
+# COMMON
+import copy
+import json
+import os
+import sys
+
+def integer(value, low=0, high=1000000):
+    if type(value) is not int or value < low or value > high:
+        raise ValueError('invalid integer')
+    return value
+
+def text(value):
+    if not isinstance(value,str) or not value:
+        raise ValueError('invalid text')
+    return value
+
+# Public legacy scaffolds. These contain ONLY the initial contract.
+# FAMILY: events
+def solve(data):
+    rows=[]
+    for item in data['records']:
+        rows.append({'customer':text(item['customer']),'cents':integer(item['cents'])})
+    return {'rows':rows,'total':sum(row['cents'] for row in rows)}
+
+# FAMILY: routing
+def solve(data):
+    target,message=text(data['to']),text(data['text'])
+    if data.get('provider','email')!='email':raise ValueError()
+    responses=data.get('responses',[200])
+    if not responses:raise ValueError()
+    for code in responses:integer(code,100,599)
+    return {'provider':'email','attempts':1,'status':'sent' if 200<=responses[0]<400 else 'failed','request':{'to':target,'body':message}}
+
+# FAMILY: ledger
+def solve(data):
+    accounts={text(k):integer(v) for k,v in data['balances'].items()}
+    receipts={};results=[]
+    for item in data['actions']:
+        if item['op']!='transfer':raise ValueError()
+        ident,src,dst=text(item['id']),text(item['from']),text(item['to'])
+        amount=integer(item['amount'],1)
+        if src==dst or src not in accounts or dst not in accounts:raise ValueError()
+        if accounts[src]<amount:results.append('insufficient');continue
+        accounts[src]-=amount;accounts[dst]+=amount
+        receipts[ident]=[src,dst,amount];results.append('applied')
+    return {'balances':accounts,'results':results}
+
+# FAMILY: scheduler
+def solve(data):
+    jobs={}
+    for item in data['jobs']:
+        ident=text(item['id'])
+        if ident in jobs or len(item['deps'])!=len(set(item['deps'])):raise ValueError()
+        jobs[ident]=item['deps']
+    if any(d not in jobs for deps in jobs.values() for d in deps):raise ValueError()
+    remaining=set(jobs);done=set()
+    while remaining:
+        ready={j for j in remaining if all(d in done for d in jobs[j])}
+        if not ready:raise ValueError()
+        remaining-=ready;done|=ready
+    return {'waves':[sorted(jobs)] if jobs else []}
+
+# FAMILY: store
+def solve(data):
+    root=os.environ['CB_STATE_DIR'];path=os.path.join(root,'snapshot.json')
+    if os.path.exists(path):
+        with open(path) as stream:state=json.load(stream)
+    else:
+        state={'values':{},'receipts':{}};legacy=os.path.join(root,'legacy.json')
+        if os.path.exists(legacy):
+            with open(legacy) as stream:state['values']=json.load(stream)['entries']
+    key=text(data['key'])
+    if data['op']=='get':return state['values'].get(key,{'status':'missing'}).copy()
+    if data['op']!='put':raise ValueError()
+    ident=text(data['id'])
+    if not isinstance(data['value'],str):raise ValueError()
+    signature={'key':key,'value':data['value']}
+    if ident in state['receipts']:
+        old=state['receipts'][ident]
+        return old['answer'].copy() if old['input']==signature else {'status':'conflict'}
+    version=state['values'].get(key,{}).get('version',0)+1
+    answer={'status':'stored','version':version}
+    state['values'][key]={'value':data['value'],'version':version}
+    state['receipts'][ident]={'input':signature,'answer':answer}
+    return answer
+
+# FAMILY: outbox
+def solve(data):
+    root=os.environ['CB_STATE_DIR'];path=os.path.join(root,'queue.json')
+    if os.path.exists(path):
+        with open(path) as stream:state=json.load(stream)
+    else:
+        state={'messages':[]};legacy=os.path.join(root,'legacy.json')
+        if os.path.exists(legacy):
+            with open(legacy) as stream:state['messages']=[dict(item,removed=False) for item in json.load(stream)['items']]
+    rows=state['messages']
+    if data['op']=='enqueue':
+        ident=text(data['id']);payload=data['payload']
+        if not isinstance(payload,str):raise ValueError()
+        old=next((r for r in rows if r['id']==ident),None)
+        if old:return {'status':'duplicate' if old['payload']==payload else 'conflict'}
+        rows.append({'id':ident,'payload':payload,'removed':False});return {'status':'queued'}
+    if data['op']=='take':
+        row=next((r for r in rows if not r['removed']),None)
+        if row is None:return None
+        row['removed']=True;return {'id':row['id'],'payload':row['payload']}
+    raise ValueError()

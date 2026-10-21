@@ -1,0 +1,4 @@
+condition,families,initial_passed,local_chain_passed,extension_chain_passed,joint_passed,initial_skill_loaded
+A,8,3,0,0,0,0
+B,8,3,0,0,0,0
+C,8,4,1,0,0,2

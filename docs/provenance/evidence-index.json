@@ -1,0 +1,20 @@
+[
+  {
+    "filename": "changebench-repaired-v0.3.0.zip",
+    "bytes": 1076709,
+    "sha256": "b21d76a4cc2a830e877bd55155cab494fec09d366102c7c8f5444a2811bd1466",
+    "availability": "Historical local archive; not attached or published by this PR"
+  },
+  {
+    "filename": "changebench-uncapped-recovery-evidence.zip",
+    "bytes": 2364859,
+    "sha256": "96d467c3cc0458714d33399935267112793a8a950a38f7a86477e20f08792098",
+    "availability": "Historical local archive; not attached or published by this PR"
+  },
+  {
+    "filename": "changebench-added-budget-2026-10-19-with-diagnostics.zip",
+    "bytes": 2074621,
+    "sha256": "ce1ffbf33dcf6aa0e3f98fa12880f0669550ff5247c7ea1384e703a6a81de82e",
+    "availability": "Historical local archive; not attached or published by this PR"
+  }
+]

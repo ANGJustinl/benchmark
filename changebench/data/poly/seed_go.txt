@@ -1,0 +1,87 @@
+// COMMON
+package main
+import (
+    "bufio"
+    "encoding/json"
+    "fmt"
+    "math"
+    "os"
+    "sort"
+    "strconv"
+    "strings"
+    "unicode/utf8"
+)
+type M = map[string]any
+func obj(v any) M { m,ok:=v.(map[string]any); if !ok {panic("object")};return m }
+func list(v any) []any { a,ok:=v.([]any);if !ok {panic("array")};return a }
+func number(v any, low, high int) int {
+    var x float64
+    switch n:=v.(type) {case float64:x=n;case int:x=float64(n);default:panic("integer")}
+    if math.IsNaN(x)||math.IsInf(x,0)||math.Trunc(x)!=x||x<float64(low)||x>float64(high){panic("integer")};return int(x)
+}
+func text(v any) string {s,ok:=v.(string);if !ok||s=="" {panic("text")};return s}
+func optional(m M,k string,d any) any {if v,ok:=m[k];ok{return v};return d}
+func has(m M,k string) bool {_,ok:=m[k];return ok}
+func clone(v any) any {b,e:=json.Marshal(v);if e!=nil{panic(e)};var out any;if json.Unmarshal(b,&out)!=nil{panic("json")};return out}
+func same(a,b any) bool {x,_:=json.Marshal(a);y,_:=json.Marshal(b);return string(x)==string(y)}
+func keys(m M) []string {a:=[]string{};for k:=range m{a=append(a,k)};sort.Strings(a);return a}
+func exists(p string) bool {_,e:=os.Stat(p);return e==nil}
+func readObject(p string) M {b,e:=os.ReadFile(p);if e!=nil{panic(e)};var m M;if json.Unmarshal(b,&m)!=nil{panic("state")};return m}
+func save(p string,s M) {b,e:=json.Marshal(s);if e!=nil{panic(e)};if e=os.WriteFile(p+".tmp",b,0600);e!=nil{panic(e)};if e=os.Rename(p+".tmp",p);e!=nil{panic(e)}}
+var _ = strconv.Atoi
+var _ = strings.ToLower
+var _ = utf8.RuneCountInString
+
+// Public legacy scaffolds. These contain ONLY the initial contract.
+// FAMILY: events
+func solve(d M) any {
+    rows:=[]any{};total:=0
+    for _,value:=range list(d["records"]){r:=obj(value);n:=number(r["cents"],0,1000000);rows=append(rows,M{"customer":text(r["customer"]),"cents":n});total+=n}
+    return M{"rows":rows,"total":total}
+}
+
+// FAMILY: routing
+func solve(d M) any {
+    target,message:=text(d["to"]),text(d["text"]);if optional(d,"provider","email")!="email"{panic("provider")}
+    responses:=list(optional(d,"responses",[]any{200}));if len(responses)==0{panic("responses")}
+    for _,n:=range responses{number(n,100,599)};n:=number(responses[0],100,599);status:="failed";if n>=200&&n<400{status="sent"}
+    return M{"provider":"email","attempts":1,"status":status,"request":M{"to":target,"body":message}}
+}
+
+// FAMILY: ledger
+func solve(d M) any {
+    accounts:=M{};for k,v:=range obj(d["balances"]){accounts[text(k)]=number(v,0,1000000)};receipts:=M{};results:=[]any{}
+    for _,value:=range list(d["actions"]){r:=obj(value);if r["op"]!="transfer"{panic("op")};id,src,dst:=text(r["id"]),text(r["from"]),text(r["to"]);n:=number(r["amount"],1,1000000)
+        if src==dst||!has(accounts,src)||!has(accounts,dst){panic("account")};from:=number(accounts[src],0,1000000000);to:=number(accounts[dst],0,1000000000)
+        if from<n{results=append(results,"insufficient");continue};accounts[src]=from-n;accounts[dst]=to+n;receipts[id]=[]any{src,dst,n};results=append(results,"applied")
+    };return M{"balances":accounts,"results":results}
+}
+
+// FAMILY: scheduler
+func solve(d M) any {
+    jobs:=M{};for _,value:=range list(d["jobs"]){r:=obj(value);id:=text(r["id"]);if has(jobs,id){panic("duplicate")};deps:=list(r["deps"]);seen:=M{};for _,v:=range deps{key:=text(v);if has(seen,key){panic("duplicate dep")};seen[key]=true};jobs[id]=deps}
+    for _,value:=range jobs{for _,v:=range list(value){if !has(jobs,text(v)){panic("unknown dep")}}};done:=M{}
+    for len(done)<len(jobs){ready:=[]string{};for id,value:=range jobs{if has(done,id){continue};ok:=true;for _,v:=range list(value){if !has(done,text(v)){ok=false}};if ok{ready=append(ready,id)}};if len(ready)==0{panic("cycle")};for _,id:=range ready{done[id]=true}}
+    waves:=[]any{};if len(jobs)>0{waves=append(waves,keys(jobs))};return M{"waves":waves}
+}
+
+// FAMILY: store
+func solve(d M) any {
+    dir:=os.Getenv("CB_STATE_DIR");path:=dir+"/snapshot.json";state:=M{"values":M{},"receipts":M{}}
+    if exists(path){state=readObject(path)}else if exists(dir+"/legacy.json"){state["values"]=readObject(dir+"/legacy.json")["entries"]}
+    values,receipts:=obj(state["values"]),obj(state["receipts"]);key:=text(d["key"])
+    if d["op"]=="get"{if has(values,key){return values[key]};return M{"status":"missing"}}
+    if d["op"]!="put"{panic("op")};id:=text(d["id"]);value,ok:=d["value"].(string);if !ok{panic("value")};sig:=M{"key":key,"value":value}
+    if has(receipts,id){old:=obj(receipts[id]);if same(old["input"],sig){return old["answer"]};return M{"status":"conflict"}}
+    version:=1;if has(values,key){version+=number(obj(values[key])["version"],1,1000000000)};answer:=M{"status":"stored","version":version}
+    values[key]=M{"value":value,"version":version};receipts[id]=M{"input":sig,"answer":answer};return answer
+}
+
+// FAMILY: outbox
+func solve(d M) any {
+    dir:=os.Getenv("CB_STATE_DIR");path:=dir+"/queue.json";state:=M{"messages":[]any{}}
+    if exists(path){state=readObject(path)}else if exists(dir+"/legacy.json"){rows:=[]any{};for _,v:=range list(readObject(dir+"/legacy.json")["items"]){r:=obj(v);r["removed"]=false;rows=append(rows,r)};state["messages"]=rows}
+    rows:=list(state["messages"])
+    if d["op"]=="enqueue"{id:=text(d["id"]);payload,ok:=d["payload"].(string);if !ok{panic("payload")};for _,v:=range rows{r:=obj(v);if r["id"]==id{status:="conflict";if r["payload"]==payload{status="duplicate"};return M{"status":status}}};state["messages"]=append(rows,M{"id":id,"payload":payload,"removed":false});return M{"status":"queued"}}
+    if d["op"]=="take"{for _,v:=range rows{r:=obj(v);if r["removed"]!=true{r["removed"]=true;return M{"id":r["id"],"payload":r["payload"]}}};return nil};panic("op")
+}

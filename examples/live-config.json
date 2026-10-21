@@ -1,0 +1,19 @@
+{
+  "builder": {
+    "model_id": "REPLACE_WITH_PINNED_MODEL_SNAPSHOT",
+    "command": ["{python}", "-I", "-S", "{worker}"],
+    "pass_env": ["OPENAI_API_KEY"],
+    "settings": {"reasoning_effort": "medium"}
+  },
+  "maintainer": {
+    "model_id": "REPLACE_WITH_PINNED_MAINTAINER_SNAPSHOT",
+    "command": ["{python}", "-I", "-S", "{worker}"],
+    "pass_env": ["OPENAI_API_KEY"],
+    "settings": {"reasoning_effort": "medium"}
+  },
+  "evaluation_images": {
+    "python": "REPLACE_WITH_LOCAL_IMMUTABLE_PYTHON_IMAGE",
+    "typescript": "REPLACE_WITH_LOCAL_IMMUTABLE_NODE_TSC_IMAGE",
+    "go": "REPLACE_WITH_LOCAL_IMMUTABLE_GO_IMAGE"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "user-resource-policy-v1",
+  "user_instruction": "不限制预算了, 我对apikey添加了额度限制, 后续都不限制预算",
+  "local_total_token_limit": null,
+  "local_stage_token_limit": null,
+  "local_stage_wall_seconds": null,
+  "local_stage_tool_calls": null,
+  "billing_boundary": "Provider API key quota configured by user",
+  "provider_quota_independently_verified": false,
+  "stop_on_quota_exhaustion_or_auth_failure": true,
+  "candidate_process_limits_unchanged": true,
+  "supersedes_previous_local_authorizations_prospectively": true,
+  "rewrite_old_frozen_results": false
+}

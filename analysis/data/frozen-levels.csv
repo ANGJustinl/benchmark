@@ -1,0 +1,5 @@
+level,families,initial_attempts,initial_passed,joint_passed,initial_budget
+1,2,6,3,0,60000
+2,2,6,3,0,60000
+3,2,6,2,0,90000
+4,2,6,2,0,120000
