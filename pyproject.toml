@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "changebench-local"
+version = "0.3.0"
+description = "Paired, cold-maintainer benchmark for software change costs"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+changebench = "changebench.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["changebench*"]
+
+[tool.setuptools.package-data]
+changebench = ["data/*.json", "data/*.md", "data/poly/*.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

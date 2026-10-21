@@ -1,0 +1,269 @@
+{
+  "scope": {
+    "families": 8,
+    "languages": [
+      "python"
+    ],
+    "conditions": [
+      "A",
+      "B",
+      "C"
+    ],
+    "original_trajectories": 24,
+    "planned_phases": 72,
+    "independent_family_clusters": 8,
+    "original_repeats_per_condition_family": 1,
+    "other_languages_actual_model_coverage": 0
+  },
+  "segment_summaries": [
+    {
+      "segment": "frozen",
+      "model_stages_with_records": 44,
+      "passed": 11,
+      "budget_stopped": 33,
+      "infrastructure_failed": 0,
+      "known_input_tokens": 3349133,
+      "known_output_tokens": 101299,
+      "known_cached_input_tokens": 2740902,
+      "known_total_tokens": 3450432,
+      "completed_response_receipts": 288
+    },
+    {
+      "segment": "recovery150",
+      "model_stages_with_records": 26,
+      "passed": 17,
+      "budget_stopped": 8,
+      "infrastructure_failed": 1,
+      "known_input_tokens": 2921592,
+      "known_output_tokens": 72066,
+      "known_cached_input_tokens": 2496370,
+      "known_total_tokens": 2993658,
+      "completed_response_receipts": 221
+    },
+    {
+      "segment": "retry150",
+      "model_stages_with_records": 8,
+      "passed": 6,
+      "budget_stopped": 2,
+      "infrastructure_failed": 0,
+      "known_input_tokens": 620620,
+      "known_output_tokens": 14052,
+      "known_cached_input_tokens": 500169,
+      "known_total_tokens": 634672,
+      "completed_response_receipts": 48
+    },
+    {
+      "segment": "recovery300",
+      "model_stages_with_records": 24,
+      "passed": 21,
+      "budget_stopped": 3,
+      "infrastructure_failed": 0,
+      "known_input_tokens": 3319503,
+      "known_output_tokens": 84608,
+      "known_cached_input_tokens": 2898692,
+      "known_total_tokens": 3404111,
+      "completed_response_receipts": 228
+    },
+    {
+      "segment": "uncapped",
+      "model_stages_with_records": 17,
+      "passed": 17,
+      "budget_stopped": 0,
+      "infrastructure_failed": 0,
+      "known_input_tokens": 980238,
+      "known_output_tokens": 26397,
+      "known_cached_input_tokens": 648064,
+      "known_total_tokens": 1006635,
+      "completed_response_receipts": 70
+    }
+  ],
+  "frozen_arms": [
+    {
+      "condition": "A",
+      "families": 8,
+      "initial_passed": 3,
+      "local_chain_passed": 0,
+      "extension_chain_passed": 0,
+      "joint_passed": 0,
+      "initial_skill_loaded": 0
+    },
+    {
+      "condition": "B",
+      "families": 8,
+      "initial_passed": 3,
+      "local_chain_passed": 0,
+      "extension_chain_passed": 0,
+      "joint_passed": 0,
+      "initial_skill_loaded": 0
+    },
+    {
+      "condition": "C",
+      "families": 8,
+      "initial_passed": 4,
+      "local_chain_passed": 1,
+      "extension_chain_passed": 0,
+      "joint_passed": 0,
+      "initial_skill_loaded": 2
+    }
+  ],
+  "frozen_levels": [
+    {
+      "level": 1,
+      "families": 2,
+      "initial_attempts": 6,
+      "initial_passed": 3,
+      "joint_passed": 0,
+      "initial_budget": 60000
+    },
+    {
+      "level": 2,
+      "families": 2,
+      "initial_attempts": 6,
+      "initial_passed": 3,
+      "joint_passed": 0,
+      "initial_budget": 60000
+    },
+    {
+      "level": 3,
+      "families": 2,
+      "initial_attempts": 6,
+      "initial_passed": 2,
+      "joint_passed": 0,
+      "initial_budget": 90000
+    },
+    {
+      "level": 4,
+      "families": 2,
+      "initial_attempts": 6,
+      "initial_passed": 2,
+      "joint_passed": 0,
+      "initial_budget": 120000
+    }
+  ],
+  "cumulative_recovery_passed": [
+    {
+      "segment": "frozen",
+      "absorbing_passed_phase_count": 11,
+      "planned_phase_count": 72
+    },
+    {
+      "segment": "recovery150",
+      "absorbing_passed_phase_count": 28,
+      "planned_phase_count": 72
+    },
+    {
+      "segment": "retry150",
+      "absorbing_passed_phase_count": 34,
+      "planned_phase_count": 72
+    },
+    {
+      "segment": "recovery300",
+      "absorbing_passed_phase_count": 55,
+      "planned_phase_count": 72
+    },
+    {
+      "segment": "uncapped",
+      "absorbing_passed_phase_count": 72,
+      "planned_phase_count": 72
+    }
+  ],
+  "totals_recorded": {
+    "model_stages_with_records": 119,
+    "passed": 72,
+    "budget_stopped": 46,
+    "infrastructure_failed": 1,
+    "known_input_tokens": 11191086,
+    "known_output_tokens": 298422,
+    "known_cached_input_tokens": 9284197,
+    "known_total_tokens": 11489508,
+    "completed_response_receipts": 855
+  },
+  "unrecorded_inflight_starts": 1,
+  "full_all_attempt_token_usage": null,
+  "full_all_attempt_monetary_cost": null,
+  "gate_completed_responses": 19,
+  "gate_known_tokens": 186345,
+  "known_response_tokens_including_gates": 11675853,
+  "budget_stop_diagnostics": {
+    "events": 46,
+    "unique_phase_keys": 41,
+    "diagnosed_events": 46,
+    "base_passed": 46,
+    "upgrade_passed": 8,
+    "undiagnosed": []
+  },
+  "saved_code_resume": {
+    "events": 48,
+    "production_py_byte_identical": 48,
+    "workspace_byte_identical": 0,
+    "changed_paths_event_counts": {
+      "README.md": 17,
+      "test_batch.py": 2,
+      "test_batches.py": 1,
+      "test_contract.py": 2,
+      "test_logic.py": 5,
+      "test_main.py": 18,
+      "test_outbox.py": 6,
+      "test_profile_contract.py": 1,
+      "test_protocol.py": 1,
+      "test_reference.py": 1,
+      "test_retries.py": 1,
+      "test_store.py": 7,
+      "test_tax.py": 1,
+      "test_transfers.py": 1
+    },
+    "known_response_tokens": 4412962,
+    "fraction_of_stage_known_response_tokens": 0.38408624633883365,
+    "classification": "Python file-name heuristic excluding tests; diagnostic, not an architecture score"
+  },
+  "original_functional_artifacts": {
+    "actually_invoked_stages": 44,
+    "base_contract_passed": 44,
+    "initial_artifacts": 24,
+    "initial_base_contract_passed": 24,
+    "blocked_uncalled_maintenance_stages": 28,
+    "changes_frozen_scores": false
+  },
+  "data_quality": {
+    "duplicate_response_ids": 0,
+    "repeated_passed_phases": 0,
+    "final_unique_passed_phases": 72,
+    "evaluation_case_groups_rechecked": 72,
+    "diagnostic_case_groups_rechecked": 46,
+    "source_integrity": {
+      "original_frozen_audit": {
+        "integrity_passed": true,
+        "planned_trials": 24,
+        "observed_trials": 24,
+        "sealed_snapshots": 11,
+        "condition_order_counts": {
+          "ABC": 2,
+          "ACB": 2,
+          "BCA": 2,
+          "CBA": 2
+        },
+        "runtime_manifest_unchanged": true,
+        "absolute_fairness_claim": false,
+        "live_model_evidence": true,
+        "limitations": [
+          "Public authored suite: contamination-free holdout not established.",
+          "No guarantee against arbitrary sandbox escape or malicious resealing.",
+          "Designed difficulty has not been empirically calibrated by fixture playback."
+        ]
+      },
+      "sealed_file_counts": {
+        "recovery-pending-20261019": 141,
+        "budget-add-21862140-20261019": 161,
+        "uncapped-recovery-v1": 121
+      },
+      "unsealed_interrupted_segments": [
+        "resume-529-20261019"
+      ]
+    },
+    "successful_raw_stdout_retained": false,
+    "audit_scope": "Recorded case/process/count/seed consistency and sealed-file hashes; not a fresh replay of all semantic comparisons.",
+    "scope_excludes_v02_trials": true,
+    "cold_start_uncapped_control_exists": false,
+    "all_remote_snapshot_identities_independently_verified": false
+  }
+}

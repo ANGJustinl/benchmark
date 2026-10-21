@@ -1,0 +1,229 @@
+// COMMON
+const STAGE: string = '__STAGE__';
+const fs = require('fs');
+function integer(value: any, low = 0, high = 1000000): number {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < low || value > high) throw Error('integer');
+    return value;
+}
+function text(value: any): string {
+    if (typeof value !== 'string' || value.length === 0) throw Error('text');
+    return value;
+}
+function clone(value: any): any { return JSON.parse(JSON.stringify(value)); }
+function ownSet(obj: any, key: string, value: any): void { Object.defineProperty(obj,key,{value,enumerable:true,configurable:true,writable:true}); }
+
+// FAMILY: settings
+export function solve(data: any): any {
+    const config = data.config ?? {};
+    const out: any = {host: 'localhost', port: 8080, debug: false};
+    for (const key of Object.keys(out)) if (Object.hasOwn(config,key)) out[key] = config[key];
+    if (STAGE === 'extension' && Object.hasOwn(data,'profile')) {
+        const profiles = config.profiles;
+        if (!profiles || !Object.hasOwn(profiles,data.profile)) throw Error('profile');
+        const chosen = profiles[data.profile];
+        if (!chosen || typeof chosen !== 'object' || Array.isArray(chosen)) throw Error('profile');
+        for (const key of Object.keys(out)) if (Object.hasOwn(chosen,key)) out[key] = chosen[key];
+    }
+    if (STAGE === 'local') {
+        const env = data.env ?? {};
+        if (Object.hasOwn(env,'APP_HOST')) out.host = env.APP_HOST;
+        if (Object.hasOwn(env,'APP_PORT')) {
+            if (typeof env.APP_PORT !== 'string' || !/^[0-9]+$/.test(env.APP_PORT)) throw Error('port');
+            out.port = Number(env.APP_PORT);
+        }
+        if (Object.hasOwn(env,'APP_DEBUG')) {
+            if (typeof env.APP_DEBUG !== 'string' || !['true','false'].includes(env.APP_DEBUG.toLowerCase())) throw Error('debug');
+            out.debug = env.APP_DEBUG.toLowerCase() === 'true';
+        }
+    }
+    text(out.host); integer(out.port,1,65535);
+    if (typeof out.debug !== 'boolean') throw Error('boolean');
+    return out;
+}
+
+// FAMILY: invoice
+export function solve(data: any): any {
+    let subtotal = 0;
+    for (const item of data.items) subtotal += integer(item.price)*integer(item.qty,1);
+    let discount = Math.floor(subtotal*integer(data.bps ?? 0,0,10000)/10000);
+    if (STAGE === 'local' && Object.hasOwn(data,'cap')) discount = Math.min(discount,integer(data.cap));
+    const out: any = {subtotal,discount,total:subtotal-discount};
+    if (STAGE === 'extension' && Object.hasOwn(data,'tax_bps')) {
+        out.tax = Math.floor(out.total*integer(data.tax_bps,0,10000)/10000); out.total += out.tax;
+    }
+    return out;
+}
+
+// FAMILY: events
+export function solve(data: any): any {
+    const version = STAGE === 'extension' ? (data.version ?? 1) : 1;
+    if (![1,2].includes(version)) throw Error('version');
+    let rows: any[] = [];
+    for (const item of data.records) {
+        const customer = text(item.customer), cents = integer(item.cents);
+        const currency = version === 2 ? (item.currency ?? 'USD') : null;
+        if (version === 2 && !['USD','EUR'].includes(currency)) throw Error('currency');
+        const found = STAGE === 'seed' ? undefined : rows.find(r => r.customer === customer && (version === 1 || r.currency === currency));
+        if (found) found.cents += cents;
+        else rows.push(version === 1 ? {customer,cents} : {customer,cents,currency});
+    }
+    const minimum = STAGE === 'local' ? integer(data.min_cents ?? 0) : 0;
+    rows = rows.filter(r => r.cents >= minimum);
+    if (version === 1) return {rows,total:rows.reduce((a,r) => a+r.cents,0)};
+    const totals: any = {USD:0,EUR:0};
+    for (const row of rows) totals[row.currency] += row.cents;
+    return {schema:2,rows,totals};
+}
+
+// FAMILY: routing
+export function solve(data: any): any {
+    const recipient = text(data.to), message = text(data.text), provider = data.provider ?? 'email';
+    if (!(STAGE === 'extension' ? ['email','sms'] : ['email']).includes(provider)) throw Error('provider');
+    if (provider === 'sms' && Array.from(message).length > 160) throw Error('length');
+    const responses = data.responses ?? [200];
+    if (!responses.length) throw Error('empty');
+    for (const code of responses) integer(code,100,599);
+    const maximum = STAGE === 'local' ? integer(data.max_attempts ?? 1,1,5) : 1;
+    let attempts = 0, code = 0;
+    do {
+        code = responses[Math.min(attempts,responses.length-1)]; attempts++;
+    } while (attempts < maximum && (code === 429 || code >= 500));
+    const good = code >= 200 && code < (STAGE === 'seed' ? 400 : 300);
+    return {provider,attempts,status:good?'sent':'failed',request:provider==='email'?{to:recipient,body:message}:{number:recipient,text:message}};
+}
+
+// FAMILY: ledger
+export function solve(data: any): any {
+    let accounts: any = Object.create(null);
+    for (const [key,value] of Object.entries(data.balances)) accounts[text(key)] = integer(value);
+    let receipts: any = Object.create(null); const reversed = new Set<string>();
+    function apply(item: any): string {
+        const id = text(item.id), src = text(item.from), dst = text(item.to), amount = integer(item.amount,1);
+        if (src === dst || !Object.hasOwn(accounts,src) || !Object.hasOwn(accounts,dst)) throw Error('accounts');
+        const signature = [src,dst,amount];
+        if (Object.hasOwn(receipts,id) && STAGE !== 'seed') return JSON.stringify(receipts[id])===JSON.stringify(signature)?'duplicate':'conflict';
+        if (accounts[src] < amount) return 'insufficient';
+        accounts[src] -= amount; accounts[dst] += amount; ownSet(receipts,id,signature); return 'applied';
+    }
+    const results: string[] = [];
+    for (const a of data.actions) {
+        if (a.op === 'transfer') results.push(apply(a));
+        else if (a.op === 'reverse' && STAGE === 'local') {
+            const id = text(a.id);
+            if (!Object.hasOwn(receipts,id)) results.push('missing');
+            else if (reversed.has(id)) results.push('duplicate');
+            else {
+                const [src,dst,n] = receipts[id];
+                if (accounts[dst] < n) results.push('insufficient');
+                else {accounts[dst] -= n; accounts[src] += n; reversed.add(id); results.push('reversed');}
+            }
+        } else if (a.op === 'batch' && STAGE === 'extension') {
+            const oldAccounts = clone(accounts), oldReceipts = clone(receipts);
+            let good = true;
+            for (const item of a.items) {
+                if (item.op !== 'transfer') throw Error('operation');
+                if (!['applied','duplicate'].includes(apply(item))) good = false;
+            }
+            if (!good) {accounts = oldAccounts; receipts = oldReceipts;}
+            results.push(good?'committed':'rejected');
+        } else throw Error('operation');
+    }
+    return {balances:accounts,results};
+}
+
+// FAMILY: scheduler
+export function solve(data: any): any {
+    const graph = new Map<string,string[]>();
+    for (const j of data.jobs) {
+        const id = text(j.id);
+        if (graph.has(id) || new Set(j.deps).size !== j.deps.length) throw Error('duplicates');
+        graph.set(id,j.deps);
+    }
+    for (const deps of graph.values()) if (deps.some(d => !graph.has(d))) throw Error('unknown');
+    const checked = new Set<string>();
+    while (checked.size < graph.size) {
+        const ready = [...graph.keys()].filter(id => !checked.has(id) && graph.get(id)!.every(d => checked.has(d)));
+        if (!ready.length) throw Error('cycle');
+        for (const id of ready) checked.add(id);
+    }
+    const failed: string[] = STAGE === 'extension' ? (data.failed ?? []) : [];
+    if (new Set(failed).size !== failed.length || failed.some(f => !graph.has(f))) throw Error('failed');
+    const unavailable = new Set(failed);
+    for (let n=0;n<graph.size;n++) for (const [id,deps] of graph) if (deps.some(d => unavailable.has(d))) unavailable.add(id);
+    const limit = STAGE === 'local' ? integer(data.max_parallel ?? Math.max(1,graph.size),1) : Math.max(1,graph.size);
+    const done = new Set<string>(); let waves: string[][] = [];
+    while (done.size+unavailable.size < graph.size) {
+        const ready = [...graph.keys()].filter(id => !done.has(id) && !unavailable.has(id) && graph.get(id)!.every(d => done.has(d))).sort().slice(0,limit);
+        waves.push(ready); for (const id of ready) done.add(id);
+    }
+    if (STAGE === 'seed') waves = graph.size ? [[...graph.keys()].sort()] : [];
+    const out: any = {waves};
+    if (STAGE === 'extension' && Object.hasOwn(data,'failed')) {out.failed = [...failed].sort(); out.blocked = [...unavailable].filter(x => !failed.includes(x)).sort();}
+    return out;
+}
+
+// FAMILY: store
+export function solve(data: any): any {
+    const dir = process.env.CB_STATE_DIR, path = dir+'/snapshot.json';
+    let state: any = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path,'utf8')) : {values:{},receipts:{}};
+    if (!fs.existsSync(path) && fs.existsSync(dir+'/legacy.json')) state.values = JSON.parse(fs.readFileSync(dir+'/legacy.json','utf8')).entries;
+    function put(item: any): any {
+        const key = text(item.key), id = text(item.id);
+        if (typeof item.value !== 'string') throw Error('value');
+        const signature: any = {key,value:item.value};
+        if (!['initial','seed'].includes(STAGE) && Object.hasOwn(item,'expected')) signature.expected = integer(item.expected);
+        if (Object.hasOwn(state.receipts,id)) {
+            const r = state.receipts[id];
+            return JSON.stringify(r.input) === JSON.stringify(signature) ? clone(r.answer) : {status:'conflict'};
+        }
+        const current = Object.hasOwn(state.values,key) ? state.values[key].version : 0;
+        if (Object.hasOwn(signature,'expected') && current !== signature.expected) return {status:'conflict'};
+        const answer = {status:'stored',version:current+1};
+        ownSet(state.values,key,{value:item.value,version:current+1}); ownSet(state.receipts,id,{input:signature,answer:clone(answer)});
+        return answer;
+    }
+    let result: any;
+    if (data.op === 'get') {const key = text(data.key); result = Object.hasOwn(state.values,key) ? clone(state.values[key]) : {status:'missing'};}
+    else if (data.op === 'put') result = put(data);
+    else if (data.op === 'batch' && STAGE === 'extension') {
+        const before = clone(state), answers: any[] = [];
+        for (const item of data.items) {if (item.op !== 'put') throw Error('op'); answers.push(put(item));}
+        if (answers.every(a => a.status === 'stored')) result = {status:'committed',versions:answers.map(a => a.version)};
+        else {state = before; result = {status:'rejected'};}
+    } else throw Error('op');
+    if (STAGE !== 'seed') {fs.writeFileSync(path+'.tmp',JSON.stringify(state)); fs.renameSync(path+'.tmp',path);}
+    return result;
+}
+
+// FAMILY: outbox
+export function solve(data: any): any {
+    const dir = process.env.CB_STATE_DIR, path = dir+'/queue.json';
+    const state: any = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path,'utf8')) : {messages:[],next:1};
+    if (!fs.existsSync(path) && fs.existsSync(dir+'/legacy.json')) state.messages = JSON.parse(fs.readFileSync(dir+'/legacy.json','utf8')).items.map((m:any) => ({...m,removed:false,lease:null}));
+    const rows: any[] = state.messages; let result: any;
+    if (data.op === 'enqueue') {
+        const id = text(data.id), payload = data.payload;
+        if (typeof payload !== 'string') throw Error('payload');
+        const old = rows.find(r => r.id === id);
+        if (old) result = {status:old.payload===payload?'duplicate':'conflict'};
+        else {rows.push({id,payload,removed:false,lease:null}); result = {status:'queued'};}
+    } else if (data.op === 'take') {
+        const row = rows.find(r => !r.removed && r.lease === null);
+        if (!row) result = null;
+        else {row.removed = true; result = {id:row.id,payload:row.payload};}
+    } else if (data.op === 'cancel' && STAGE === 'local') {
+        const id = text(data.id), row = rows.find(r => r.id === id && !r.removed);
+        result = {status:row?'canceled':'missing'}; if (row) row.removed = true;
+    } else if (data.op === 'claim' && STAGE === 'extension') {
+        const now = integer(data.now), lease = integer(data.lease,1);
+        const row = rows.find(r => !r.removed && (r.lease === null || r.lease.until <= now));
+        if (!row) result = null;
+        else {row.lease = {token:state.next++,until:now+lease}; result = {id:row.id,payload:row.payload,...row.lease};}
+    } else if (data.op === 'ack' && STAGE === 'extension') {
+        const id = text(data.id), token = integer(data.token,1);
+        const row = rows.find(r => r.id === id && !r.removed && r.lease && r.lease.token === token);
+        result = {status:row?'acked':'stale'}; if (row) row.removed = true;
+    } else throw Error('op');
+    if (STAGE !== 'seed') {fs.writeFileSync(path+'.tmp',JSON.stringify(state)); fs.renameSync(path+'.tmp',path);}
+    return result;
+}

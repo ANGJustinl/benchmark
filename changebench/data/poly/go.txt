@@ -1,0 +1,165 @@
+// COMMON
+package main
+import (
+    "bufio"
+    "encoding/json"
+    "fmt"
+    "math"
+    "os"
+    "sort"
+    "strconv"
+    "strings"
+    "unicode/utf8"
+)
+const stage = "__STAGE__"
+type M = map[string]any
+func obj(v any) M { m,ok:=v.(map[string]any); if !ok {panic("object")};return m }
+func list(v any) []any { a,ok:=v.([]any);if !ok {panic("array")};return a }
+func number(v any, low, high int) int {
+    var x float64
+    switch n:=v.(type) {case float64:x=n;case int:x=float64(n);default:panic("integer")}
+    if math.IsNaN(x)||math.IsInf(x,0)||math.Trunc(x)!=x||x<float64(low)||x>float64(high){panic("integer")};return int(x)
+}
+func text(v any) string {s,ok:=v.(string);if !ok||s=="" {panic("text")};return s}
+func optional(m M,k string,d any) any {if v,ok:=m[k];ok{return v};return d}
+func has(m M,k string) bool {_,ok:=m[k];return ok}
+func clone(v any) any {b,e:=json.Marshal(v);if e!=nil{panic(e)};var out any;if json.Unmarshal(b,&out)!=nil{panic("json")};return out}
+func same(a,b any) bool {x,_:=json.Marshal(a);y,_:=json.Marshal(b);return string(x)==string(y)}
+func keys(m M) []string {a:=[]string{};for k:=range m{a=append(a,k)};sort.Strings(a);return a}
+func exists(p string) bool {_,e:=os.Stat(p);return e==nil}
+func readObject(p string) M {b,e:=os.ReadFile(p);if e!=nil{panic(e)};var m M;if json.Unmarshal(b,&m)!=nil{panic("state")};return m}
+func save(p string,s M) {b,e:=json.Marshal(s);if e!=nil{panic(e)};if e=os.WriteFile(p+".tmp",b,0600);e!=nil{panic(e)};if e=os.Rename(p+".tmp",p);e!=nil{panic(e)}}
+var _ = strconv.Atoi
+var _ = strings.ToLower
+var _ = utf8.RuneCountInString
+
+// FAMILY: settings
+func solve(d M) any {
+    config:=obj(optional(d,"config",M{}));out:=M{"host":"localhost","port":8080,"debug":false}
+    for k:=range out{if v,ok:=config[k];ok{out[k]=v}}
+    if stage=="extension"&&has(d,"profile") {profiles:=obj(optional(config,"profiles",M{}));chosen:=obj(profiles[text(d["profile"])]);for k:=range out{if v,ok:=chosen[k];ok{out[k]=v}}}
+    if stage=="local" {env:=obj(optional(d,"env",M{}));if has(env,"APP_HOST"){out["host"]=env["APP_HOST"]}
+        if has(env,"APP_PORT"){s:=text(env["APP_PORT"]);for _,c:=range s{if c<'0'||c>'9'{panic("port")}};n,e:=strconv.Atoi(s);if e!=nil{panic(e)};out["port"]=n}
+        if has(env,"APP_DEBUG"){s:=strings.ToLower(text(env["APP_DEBUG"]));if s!="true"&&s!="false"{panic("debug")};out["debug"]=s=="true"}
+    }
+    text(out["host"]);number(out["port"],1,65535);if _,ok:=out["debug"].(bool);!ok{panic("debug")};return out
+}
+
+// FAMILY: invoice
+func solve(d M) any {
+    subtotal:=0;for _,v:=range list(d["items"]){r:=obj(v);subtotal+=number(r["price"],0,1000000)*number(r["qty"],1,1000000)}
+    discount:=subtotal*number(optional(d,"bps",0),0,10000)/10000
+    if stage=="local"&&has(d,"cap"){cap:=number(d["cap"],0,1000000);if cap<discount{discount=cap}}
+    out:=M{"subtotal":subtotal,"discount":discount,"total":subtotal-discount}
+    if stage=="extension"&&has(d,"tax_bps"){tax:=(subtotal-discount)*number(d["tax_bps"],0,10000)/10000;out["tax"]=tax;out["total"]=subtotal-discount+tax};return out
+}
+
+// FAMILY: events
+func solve(d M) any {
+    version:=1;if stage=="extension"{version=number(optional(d,"version",1),1,2)}
+    rows:=[]any{}
+    for _,v:=range list(d["records"]){r:=obj(v);customer:=text(r["customer"]);cents:=number(r["cents"],0,1000000);currency:=""
+        if version==2{currency=text(optional(r,"currency","USD"));if currency!="USD"&&currency!="EUR"{panic("currency")}}
+        var found M
+        if stage!="seed"{for _,v:=range rows{row:=obj(v);if row["customer"]==customer&&(version==1||row["currency"]==currency){found=row;break}}}
+        if found!=nil{found["cents"]=number(found["cents"],0,1000000000)+cents}else{row:=M{"customer":customer,"cents":cents};if version==2{row["currency"]=currency};rows=append(rows,row)}
+    }
+    minimum:=0;if stage=="local"{minimum=number(optional(d,"min_cents",0),0,1000000)}
+    kept:=[]any{};total:=0;totals:=M{"USD":0,"EUR":0}
+    for _,v:=range rows{r:=obj(v);n:=number(r["cents"],0,1000000000);if n>=minimum{kept=append(kept,r);total+=n;if version==2{c:=text(r["currency"]);totals[c]=number(totals[c],0,1000000000)+n}}}
+    if version==1{return M{"rows":kept,"total":total}};return M{"schema":2,"rows":kept,"totals":totals}
+}
+
+// FAMILY: routing
+func solve(d M) any {
+    to,msg:=text(d["to"]),text(d["text"]);provider:=text(optional(d,"provider","email"))
+    if provider!="email"&&(provider!="sms"||stage!="extension"){panic("provider")};if provider=="sms"&&utf8.RuneCountInString(msg)>160{panic("length")}
+    responses:=list(optional(d,"responses",[]any{200}));if len(responses)==0{panic("empty")};for _,v:=range responses{number(v,100,599)}
+    maximum:=1;if stage=="local"{maximum=number(optional(d,"max_attempts",1),1,5)}
+    attempts,code:=0,0
+    for attempts<maximum{idx:=attempts;if idx>=len(responses){idx=len(responses)-1};code=number(responses[idx],100,599);attempts++;if code!=429&&code<500{break}}
+    upper:=300;if stage=="seed"{upper=400};status:="failed";if code>=200&&code<upper{status="sent"}
+    payload:=M{"to":to,"body":msg};if provider=="sms"{payload=M{"number":to,"text":msg}}
+    return M{"provider":provider,"attempts":attempts,"status":status,"request":payload}
+}
+
+// FAMILY: ledger
+func solve(d M) any {
+    balances:=M{};for k,v:=range obj(d["balances"]){balances[text(k)]=number(v,0,1000000)};receipts:=M{};reversed:=map[string]bool{}
+    apply:=func(a M) string {
+        id,src,dst,amount:=text(a["id"]),text(a["from"]),text(a["to"]),number(a["amount"],1,1000000)
+        if src==dst||!has(balances,src)||!has(balances,dst){panic("accounts")};sig:=[]any{src,dst,amount}
+        if has(receipts,id)&&stage!="seed"{if same(receipts[id],sig){return "duplicate"};return "conflict"}
+        left:=number(balances[src],0,1000000000);if left<amount{return "insufficient"}
+        balances[src]=left-amount;balances[dst]=number(balances[dst],0,1000000000)+amount;receipts[id]=sig;return "applied"
+    }
+    results:=[]any{}
+    for _,v:=range list(d["actions"]){a:=obj(v);op:=text(a["op"])
+        if op=="transfer"{results=append(results,apply(a))}else if op=="reverse"&&stage=="local"{id:=text(a["id"])
+            if !has(receipts,id){results=append(results,"missing")}else if reversed[id]{results=append(results,"duplicate")}else{r:=list(receipts[id]);src,dst,n:=text(r[0]),text(r[1]),number(r[2],1,1000000)
+                if number(balances[dst],0,1000000000)<n{results=append(results,"insufficient")}else{balances[dst]=number(balances[dst],0,1000000000)-n;balances[src]=number(balances[src],0,1000000000)+n;reversed[id]=true;results=append(results,"reversed")}}
+        }else if op=="batch"&&stage=="extension"{oldB,oldR:=obj(clone(balances)),obj(clone(receipts));good:=true
+            for _,item:=range list(a["items"]){t:=obj(item);if t["op"]!="transfer"{panic("op")};r:=apply(t);if r!="applied"&&r!="duplicate"{good=false}}
+            if good{results=append(results,"committed")}else{balances,receipts=oldB,oldR;results=append(results,"rejected")}
+        }else{panic("op")}
+    };return M{"balances":balances,"results":results}
+}
+
+// FAMILY: scheduler
+func solve(d M) any {
+    graph:=map[string][]string{}
+    for _,v:=range list(d["jobs"]){j:=obj(v);id:=text(j["id"]);if _,ok:=graph[id];ok{panic("duplicate")};deps:=[]string{};seen:=map[string]bool{}
+        for _,dep:=range list(j["deps"]){name:=text(dep);if seen[name]{panic("duplicate dep")};seen[name]=true;deps=append(deps,name)};graph[id]=deps}
+    for _,deps:=range graph{for _,dep:=range deps{if _,ok:=graph[dep];!ok{panic("unknown")}}}
+    checked:=map[string]bool{}
+    ready:=func(done,blocked map[string]bool) []string{a:=[]string{};for id,deps:=range graph{if done[id]||blocked[id]{continue};ok:=true;for _,dep:=range deps{if !done[dep]{ok=false}};if ok{a=append(a,id)}};sort.Strings(a);return a}
+    for len(checked)<len(graph){a:=ready(checked,map[string]bool{});if len(a)==0{panic("cycle")};for _,id:=range a{checked[id]=true}}
+    failed:=map[string]bool{};if stage=="extension"{for _,v:=range list(optional(d,"failed",[]any{})){id:=text(v);if _,ok:=graph[id];!ok||failed[id]{panic("failed")};failed[id]=true}}
+    blocked:=map[string]bool{};for id:=range failed{blocked[id]=true};for i:=0;i<len(graph);i++{for id,deps:=range graph{for _,dep:=range deps{if blocked[dep]{blocked[id]=true}}}}
+    limit:=len(graph);if limit==0{limit=1};if stage=="local"{limit=number(optional(d,"max_parallel",limit),1,1000000)}
+    done:=map[string]bool{};waves:=[]any{}
+    for len(done)+len(blocked)<len(graph){a:=ready(done,blocked);if len(a)>limit{a=a[:limit]};waves=append(waves,a);for _,id:=range a{done[id]=true}}
+    if stage=="seed"{all:=[]string{};for id:=range graph{all=append(all,id)};sort.Strings(all);waves=[]any{};if len(all)>0{waves=append(waves,all)}}
+    out:=M{"waves":waves};if stage=="extension"&&has(d,"failed"){a,b:=[]string{},[]string{};for id:=range failed{a=append(a,id)};for id:=range blocked{if !failed[id]{b=append(b,id)}};sort.Strings(a);sort.Strings(b);out["failed"],out["blocked"]=a,b};return out
+}
+
+// FAMILY: store
+func solve(d M) any {
+    dir:=os.Getenv("CB_STATE_DIR");path:=dir+"/snapshot.json";state:=M{"values":M{},"receipts":M{}}
+    if exists(path){state=readObject(path)}else if exists(dir+"/legacy.json"){state["values"]=readObject(dir+"/legacy.json")["entries"]}
+    put:=func(item M) any {
+        id,key:=text(item["id"]),text(item["key"]);value,ok:=item["value"].(string);if !ok{panic("value")};sig:=M{"key":key,"value":value}
+        if stage!="initial"&&stage!="seed"&&has(item,"expected"){sig["expected"]=number(item["expected"],0,1000000)}
+        receipts,values:=obj(state["receipts"]),obj(state["values"])
+        if has(receipts,id){r:=obj(receipts[id]);if same(r["input"],sig){return clone(r["answer"])};return M{"status":"conflict"}}
+        version:=0;if has(values,key){version=number(obj(values[key])["version"],1,1000000)}
+        if has(sig,"expected")&&sig["expected"]!=version{return M{"status":"conflict"}}
+        response:=M{"status":"stored","version":version+1};values[key]=M{"value":value,"version":version+1};receipts[id]=M{"input":sig,"answer":clone(response)};return response
+    }
+    var result any
+    switch d["op"]{case "get":key:=text(d["key"]);values:=obj(state["values"]);if has(values,key){result=clone(values[key])}else{result=M{"status":"missing"}}
+    case "put":result=put(d)
+    case "batch":if stage!="extension"{panic("op")};before:=obj(clone(state));versions:=[]any{};good:=true
+        for _,v:=range list(d["items"]){item:=obj(v);if item["op"]!="put"{panic("op")};r:=obj(put(item));if r["status"]!="stored"{good=false}else{versions=append(versions,r["version"])}}
+        if good{result=M{"status":"committed","versions":versions}}else{state=before;result=M{"status":"rejected"}}
+    default:panic("op")}
+    if stage!="seed"{save(path,state)};return result
+}
+
+// FAMILY: outbox
+func solve(d M) any {
+    dir:=os.Getenv("CB_STATE_DIR");path:=dir+"/queue.json";state:=M{"messages":[]any{},"next":1}
+    if exists(path){state=readObject(path)}else if exists(dir+"/legacy.json"){rows:=[]any{};for _,v:=range list(readObject(dir+"/legacy.json")["items"]){m:=obj(v);rows=append(rows,M{"id":m["id"],"payload":m["payload"],"removed":false,"lease":nil})};state["messages"]=rows}
+    rows:=list(state["messages"]);var result any
+    switch d["op"] {
+    case "enqueue":id:=text(d["id"]);payload,ok:=d["payload"].(string);if !ok{panic("payload")};var old M;for _,v:=range rows{r:=obj(v);if r["id"]==id{old=r;break}}
+        if old!=nil{status:="conflict";if old["payload"]==payload{status="duplicate"};result=M{"status":status}}else{state["messages"]=append(rows,M{"id":id,"payload":payload,"removed":false,"lease":nil});result=M{"status":"queued"}}
+    case "take":for _,v:=range rows{r:=obj(v);if r["removed"]==false&&r["lease"]==nil{r["removed"]=true;result=M{"id":r["id"],"payload":r["payload"]};break}}
+    case "cancel":if stage!="local"{panic("op")};id:=text(d["id"]);result=M{"status":"missing"};for _,v:=range rows{r:=obj(v);if r["id"]==id&&r["removed"]==false{r["removed"]=true;result=M{"status":"canceled"};break}}
+    case "claim":if stage!="extension"{panic("op")};now,lease:=number(d["now"],0,1000000),number(d["lease"],1,1000000)
+        for _,v:=range rows{r:=obj(v);available:=r["lease"]==nil;if !available{available=number(obj(r["lease"])["until"],0,2000000)<=now};if r["removed"]==false&&available{token:=number(state["next"],1,1000000);state["next"]=token+1;r["lease"]=M{"token":token,"until":now+lease};result=M{"id":r["id"],"payload":r["payload"],"token":token,"until":now+lease};break}}
+    case "ack":if stage!="extension"{panic("op")};id,token:=text(d["id"]),number(d["token"],1,1000000);result=M{"status":"stale"}
+        for _,v:=range rows{r:=obj(v);if r["id"]==id&&r["removed"]==false&&r["lease"]!=nil&&number(obj(r["lease"])["token"],1,1000000)==token{r["removed"]=true;result=M{"status":"acked"};break}}
+    default:panic("op")}
+    if stage!="seed"{save(path,state)};return result
+}

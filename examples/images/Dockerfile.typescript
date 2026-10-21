@@ -1,0 +1,7 @@
+# Supply a trusted digest-pinned Node base image. No unpinned default is provided.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+RUN npm install --global --ignore-scripts typescript@5.8.3 \
+    && node --version && tsc --version
+USER 65534:65534
+WORKDIR /src

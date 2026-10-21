@@ -1,0 +1,83 @@
+// COMMON
+const fs = require('fs');
+function integer(value: any, low = 0, high = 1000000): number {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < low || value > high) throw Error('integer');
+    return value;
+}
+function text(value: any): string {
+    if (typeof value !== 'string' || value.length === 0) throw Error('text');
+    return value;
+}
+function clone(value: any): any { return JSON.parse(JSON.stringify(value)); }
+function ownSet(obj: any, key: string, value: any): void { Object.defineProperty(obj,key,{value,enumerable:true,configurable:true,writable:true}); }
+
+// Public legacy scaffolds. These contain ONLY the initial contract.
+// FAMILY: events
+export function solve(data:any):any {
+    const rows=data.records.map((r:any)=>({customer:text(r.customer),cents:integer(r.cents)}));
+    return {rows,total:rows.reduce((n:number,r:any)=>n+r.cents,0)};
+}
+
+// FAMILY: routing
+export function solve(data:any):any {
+    const target=text(data.to), message=text(data.text);
+    if((data.provider??'email')!=='email')throw Error('provider');
+    const responses=data.responses??[200];if(!responses.length)throw Error('responses');
+    for(const n of responses)integer(n,100,599);
+    return {provider:'email',attempts:1,status:responses[0]>=200&&responses[0]<400?'sent':'failed',request:{to:target,body:message}};
+}
+
+// FAMILY: ledger
+export function solve(data:any):any {
+    const accounts:any=Object.create(null),receipts:any=Object.create(null),results:string[]=[];
+    for(const [k,v] of Object.entries(data.balances))accounts[text(k)]=integer(v);
+    for(const item of data.actions){
+        if(item.op!=='transfer')throw Error('op');
+        const id=text(item.id),src=text(item.from),dst=text(item.to),n=integer(item.amount,1);
+        if(src===dst||!Object.hasOwn(accounts,src)||!Object.hasOwn(accounts,dst))throw Error('account');
+        if(accounts[src]<n){results.push('insufficient');continue;}
+        accounts[src]-=n;accounts[dst]+=n;ownSet(receipts,id,[src,dst,n]);results.push('applied');
+    }
+    return {balances:accounts,results};
+}
+
+// FAMILY: scheduler
+export function solve(data:any):any {
+    const jobs=new Map<string,string[]>();
+    for(const item of data.jobs){const id=text(item.id);if(jobs.has(id)||new Set(item.deps).size!==item.deps.length)throw Error('jobs');jobs.set(id,item.deps);}
+    for(const deps of jobs.values())if(deps.some(d=>!jobs.has(d)))throw Error('dependency');
+    const remaining=new Set(jobs.keys()),done=new Set<string>();
+    while(remaining.size){const ready=[...remaining].filter(j=>jobs.get(j)!.every(d=>done.has(d)));if(!ready.length)throw Error('cycle');for(const j of ready){remaining.delete(j);done.add(j);}}
+    return {waves:jobs.size?[[...jobs.keys()].sort()]:[]};
+}
+
+// FAMILY: store
+export function solve(data:any):any {
+    const dir=process.env.CB_STATE_DIR,path=dir+'/snapshot.json';
+    const state:any=fs.existsSync(path)?JSON.parse(fs.readFileSync(path,'utf8')):{values:{},receipts:{}};
+    if(!fs.existsSync(path)&&fs.existsSync(dir+'/legacy.json'))state.values=JSON.parse(fs.readFileSync(dir+'/legacy.json','utf8')).entries;
+    const key=text(data.key);
+    if(data.op==='get')return Object.hasOwn(state.values,key)?clone(state.values[key]):{status:'missing'};
+    if(data.op!=='put')throw Error('op');
+    const id=text(data.id);if(typeof data.value!=='string')throw Error('value');
+    const signature={key,value:data.value};
+    if(Object.hasOwn(state.receipts,id)){const old=state.receipts[id];return JSON.stringify(old.input)===JSON.stringify(signature)?clone(old.answer):{status:'conflict'};}
+    const version=(Object.hasOwn(state.values,key)?state.values[key].version:0)+1;
+    const answer={status:'stored',version};ownSet(state.values,key,{value:data.value,version});ownSet(state.receipts,id,{input:signature,answer});
+    return answer;
+}
+
+// FAMILY: outbox
+export function solve(data:any):any {
+    const dir=process.env.CB_STATE_DIR,path=dir+'/queue.json';
+    const state:any=fs.existsSync(path)?JSON.parse(fs.readFileSync(path,'utf8')):{messages:[]};
+    if(!fs.existsSync(path)&&fs.existsSync(dir+'/legacy.json'))state.messages=JSON.parse(fs.readFileSync(dir+'/legacy.json','utf8')).items.map((r:any)=>({...r,removed:false}));
+    const rows:any[]=state.messages;
+    if(data.op==='enqueue'){
+        const id=text(data.id),payload=data.payload;if(typeof payload!=='string')throw Error('payload');
+        const old=rows.find(r=>r.id===id);if(old)return {status:old.payload===payload?'duplicate':'conflict'};
+        rows.push({id,payload,removed:false});return {status:'queued'};
+    }
+    if(data.op==='take'){const row=rows.find(r=>!r.removed);if(!row)return null;row.removed=true;return {id:row.id,payload:row.payload};}
+    throw Error('op');
+}

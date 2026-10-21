@@ -1,0 +1,11 @@
+{
+  "profile": {"name": "codex-medium-diagnostic-v1", "calibration_status": "uncalibrated"},
+  "client_profile": {"model_id": "gpt-6.1-sol", "reasoning_effort": "medium"},
+  "budgets_by_level": {
+    "1": {"wall_seconds": 180, "total_tokens": 60000, "tool_calls": 100},
+    "2": {"wall_seconds": 300, "total_tokens": 60000, "tool_calls": 140},
+    "3": {"wall_seconds": 480, "total_tokens": 90000, "tool_calls": 180},
+    "4": {"wall_seconds": 720, "total_tokens": 120000, "tool_calls": 240}
+  },
+  "evaluation": {"random_count": 18, "execution_seconds": 8, "compile_seconds": 120, "startup_seconds": 30}
+}

@@ -1,0 +1,3 @@
+interface:
+  display_name: "Design Check (Benchmark Treatment)"
+  short_description: "Experimental design-judgment condition; not a default workflow"

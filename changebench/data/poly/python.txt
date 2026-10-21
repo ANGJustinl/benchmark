@@ -1,0 +1,240 @@
+# COMMON
+import copy
+import json
+import os
+import sys
+STAGE = '__STAGE__'
+
+def integer(value, low=0, high=1000000):
+    if type(value) is not int or value < low or value > high:
+        raise ValueError('invalid integer')
+    return value
+
+def text(value):
+    if not isinstance(value,str) or not value:
+        raise ValueError('invalid text')
+    return value
+
+# FAMILY: settings
+def solve(data):
+    config = data.get('config', {})
+    values = {'host': 'localhost', 'port': 8080, 'debug': False}
+    for key in values:
+        if key in config: values[key] = config[key]
+    if STAGE == 'extension' and 'profile' in data:
+        chosen = config.get('profiles',{}).get(data['profile'])
+        if not isinstance(chosen,dict): raise ValueError()
+        for key in values:
+            if key in chosen: values[key] = chosen[key]
+    if STAGE == 'local':
+        env = data.get('env',{})
+        if 'APP_HOST' in env: values['host'] = env['APP_HOST']
+        if 'APP_PORT' in env:
+            value = env['APP_PORT']
+            if not isinstance(value,str) or not value or not value.isascii() or not value.isdigit(): raise ValueError()
+            values['port'] = int(value)
+        if 'APP_DEBUG' in env:
+            value = env['APP_DEBUG']
+            if not isinstance(value,str) or value.lower() not in ['true','false']: raise ValueError()
+            values['debug'] = value.lower() == 'true'
+    text(values['host']); integer(values['port'],1,65535)
+    if type(values['debug']) is not bool: raise ValueError()
+    return values
+
+# FAMILY: invoice
+def solve(data):
+    subtotal = 0
+    for item in data['items']:
+        subtotal += integer(item['price']) * integer(item['qty'],1)
+    discount = subtotal * integer(data.get('bps',0),0,10000) // 10000
+    if STAGE == 'local' and 'cap' in data: discount = min(discount, integer(data['cap']))
+    result = dict(subtotal=subtotal, discount=discount, total=subtotal-discount)
+    if STAGE == 'extension' and 'tax_bps' in data:
+        result['tax'] = result['total'] * integer(data['tax_bps'],0,10000) // 10000
+        result['total'] += result['tax']
+    return result
+
+# FAMILY: events
+def solve(data):
+    version = data.get('version',1) if STAGE == 'extension' else 1
+    if type(version) is not int or version not in (1,2): raise ValueError()
+    rows = []
+    for item in data['records']:
+        customer, cents = text(item['customer']), integer(item['cents'])
+        currency = item.get('currency','USD') if version == 2 else None
+        if version == 2 and currency not in ('USD','EUR'): raise ValueError()
+        prior = next((r for r in rows if r['customer']==customer and (version==1 or r['currency']==currency)),None)
+        if STAGE == 'seed': prior = None
+        if prior is not None: prior['cents'] += cents
+        else:
+            row={'customer':customer,'cents':cents}
+            if version == 2: row['currency']=currency
+            rows.append(row)
+    minimum = integer(data.get('min_cents',0)) if STAGE == 'local' else 0
+    rows = [r for r in rows if r['cents'] >= minimum]
+    if version == 1: return {'rows':rows,'total':sum(r['cents'] for r in rows)}
+    totals={'USD':0,'EUR':0}
+    for r in rows: totals[r['currency']]+=r['cents']
+    return {'schema':2,'rows':rows,'totals':totals}
+
+# FAMILY: routing
+def solve(data):
+    recipient,message=text(data['to']),text(data['text'])
+    provider=data.get('provider','email')
+    if provider not in (['email','sms'] if STAGE=='extension' else ['email']):raise ValueError()
+    if provider=='sms' and len(message)>160:raise ValueError()
+    responses=data.get('responses',[200])
+    if not responses:raise ValueError()
+    for code in responses:integer(code,100,599)
+    maximum=integer(data.get('max_attempts',1),1,5) if STAGE=='local' else 1
+    index=0
+    while True:
+        status=responses[min(index,len(responses)-1)];index+=1
+        if index==maximum or 200<=status<300 or (status!=429 and status<500):break
+    good=200<=status<(400 if STAGE=='seed' else 300)
+    payload={'to':recipient,'body':message} if provider=='email' else {'number':recipient,'text':message}
+    return {'provider':provider,'attempts':index,'status':'sent' if good else 'failed','request':payload}
+
+# FAMILY: ledger
+def solve(data):
+    accounts={text(k):integer(v) for k,v in data['balances'].items()}
+    history={};undone=set()
+    def apply(item):
+        key=text(item['id']);src=text(item['from']);dst=text(item['to']);amount=integer(item['amount'],1)
+        if src==dst or src not in accounts or dst not in accounts:raise ValueError()
+        signature=[src,dst,amount]
+        if key in history and STAGE!='seed':return 'duplicate' if history[key]==signature else 'conflict'
+        if accounts[src]<amount:return 'insufficient'
+        accounts[src]-=amount;accounts[dst]+=amount;history[key]=signature
+        return 'applied'
+    output=[]
+    for action in data['actions']:
+        operation=action['op']
+        if operation=='transfer':output.append(apply(action))
+        elif operation=='reverse' and STAGE=='local':
+            key=text(action['id'])
+            if key not in history:output.append('missing')
+            elif key in undone:output.append('duplicate')
+            else:
+                src,dst,n=history[key]
+                if accounts[dst]<n:output.append('insufficient')
+                else:
+                    accounts[dst]-=n;accounts[src]+=n;undone.add(key);output.append('reversed')
+        elif operation=='batch' and STAGE=='extension':
+            backup=accounts.copy(),copy.deepcopy(history)
+            statuses=[]
+            for item in action['items']:
+                if item['op']!='transfer':raise ValueError()
+                statuses.append(apply(item))
+            ok=all(status in ('applied','duplicate') for status in statuses)
+            if not ok:accounts,history=backup
+            output.append('committed' if ok else 'rejected')
+        else:raise ValueError()
+    return {'balances':accounts,'results':output}
+
+# FAMILY: scheduler
+def solve(data):
+    jobs={}
+    for job in data['jobs']:
+        name=text(job['id'])
+        if name in jobs or len(job['deps'])!=len(set(job['deps'])):raise ValueError()
+        jobs[name]=list(job['deps'])
+    if any(d not in jobs for deps in jobs.values() for d in deps):raise ValueError()
+    remaining=set(jobs);checked=set()
+    while remaining:
+        possible={j for j in remaining if all(d in checked for d in jobs[j])}
+        if not possible:raise ValueError()
+        remaining-=possible;checked|=possible
+    failed=list(data.get('failed',[])) if STAGE=='extension' else []
+    if len(failed)!=len(set(failed)) or any(f not in jobs for f in failed):raise ValueError()
+    unavailable=set(failed)
+    for _ in jobs:
+        unavailable.update(j for j in jobs if any(d in unavailable for d in jobs[j]))
+    limit=integer(data.get('max_parallel',max(1,len(jobs))),1) if STAGE=='local' else max(1,len(jobs))
+    done=set();waves=[]
+    while len(done|unavailable)<len(jobs):
+        next_wave=sorted(j for j in jobs if j not in done|unavailable and all(d in done for d in jobs[j]))[:limit]
+        waves.append(next_wave);done.update(next_wave)
+    if STAGE=='seed':waves=[sorted(jobs)] if jobs else []
+    result={'waves':waves}
+    if STAGE=='extension' and 'failed' in data:result.update(failed=sorted(failed),blocked=sorted(unavailable-set(failed)))
+    return result
+
+# FAMILY: store
+def solve(data):
+    root=os.environ['CB_STATE_DIR'];path=os.path.join(root,'snapshot.json')
+    if os.path.exists(path):
+        with open(path) as stream: state=json.load(stream)
+    else:
+        legacy=os.path.join(root,'legacy.json');state={'values':{},'receipts':{}}
+        if os.path.exists(legacy):
+            with open(legacy) as stream: state['values']=json.load(stream)['entries']
+    def put(item):
+        key,ident=text(item['key']),text(item['id'])
+        if not isinstance(item['value'],str):raise ValueError()
+        signature={'key':key,'value':item['value']}
+        if STAGE not in ('initial','seed') and 'expected' in item:signature['expected']=integer(item['expected'])
+        record=state['receipts'].get(ident)
+        if record is not None:return record['answer'].copy() if record['input']==signature else {'status':'conflict'}
+        current=state['values'].get(key,{}).get('version',0)
+        if 'expected' in signature and signature['expected']!=current:return {'status':'conflict'}
+        answer={'status':'stored','version':current+1}
+        state['values'][key]={'value':item['value'],'version':current+1}
+        state['receipts'][ident]={'input':signature,'answer':answer.copy()}
+        return answer
+    if data['op']=='get':result=state['values'].get(text(data['key']),{'status':'missing'}).copy()
+    elif data['op']=='put':result=put(data)
+    elif data['op']=='batch' and STAGE=='extension':
+        backup=copy.deepcopy(state);answers=[]
+        for item in data['items']:
+            if item['op']!='put':raise ValueError()
+            answers.append(put(item))
+        if all(a['status']=='stored' for a in answers):result={'status':'committed','versions':[a['version'] for a in answers]}
+        else:state=backup;result={'status':'rejected'}
+    else:raise ValueError()
+    if STAGE!='seed':
+        with open(path+'.tmp','w') as stream:json.dump(state,stream);stream.flush();os.fsync(stream.fileno())
+        os.replace(path+'.tmp',path)
+    return result
+
+# FAMILY: outbox
+def solve(data):
+    root=os.environ['CB_STATE_DIR'];path=os.path.join(root,'queue.json')
+    if os.path.exists(path):
+        with open(path) as stream:state=json.load(stream)
+    else:
+        state={'messages':[],'next':1};legacy=os.path.join(root,'legacy.json')
+        if os.path.exists(legacy):
+            with open(legacy) as stream:state['messages']=[dict(m,removed=False,lease=None) for m in json.load(stream)['items']]
+    rows=state['messages'];op=data['op']
+    if op=='enqueue':
+        ident=text(data['id']);payload=data['payload']
+        if not isinstance(payload,str):raise ValueError()
+        old=next((r for r in rows if r['id']==ident),None)
+        if old:result={'status':'duplicate' if old['payload']==payload else 'conflict'}
+        else:rows.append(dict(id=ident,payload=payload,removed=False,lease=None));result={'status':'queued'}
+    elif op=='take':
+        row=next((r for r in rows if not r['removed'] and r['lease'] is None),None)
+        if row is None:result=None
+        else:row['removed']=True;result={'id':row['id'],'payload':row['payload']}
+    elif op=='cancel' and STAGE=='local':
+        ident=text(data['id']);row=next((r for r in rows if r['id']==ident and not r['removed']),None)
+        result={'status':'canceled' if row else 'missing'}
+        if row:row['removed']=True
+    elif op=='claim' and STAGE=='extension':
+        now,lease=integer(data['now']),integer(data['lease'],1)
+        row=next((r for r in rows if not r['removed'] and (r['lease'] is None or r['lease']['until']<=now)),None)
+        if row is None:result=None
+        else:
+            row['lease']={'token':state['next'],'until':now+lease};state['next']+=1
+            result={'id':row['id'],'payload':row['payload'],**row['lease']}
+    elif op=='ack' and STAGE=='extension':
+        ident,token=text(data['id']),integer(data['token'],1)
+        row=next((r for r in rows if r['id']==ident and not r['removed'] and r['lease'] and r['lease']['token']==token),None)
+        result={'status':'acked' if row else 'stale'}
+        if row:row['removed']=True
+    else:raise ValueError()
+    if STAGE!='seed':
+        with open(path+'.tmp','w') as stream:json.dump(state,stream);stream.flush();os.fsync(stream.fileno())
+        os.replace(path+'.tmp',path)
+    return result
