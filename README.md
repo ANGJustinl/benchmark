@@ -53,6 +53,10 @@ The build copies preinstalled pinned tools; candidates run offline. Missing Dock
 or images fails explicitly, without a host fallback. See [runtime setup](docs/runtime-setup.md)
 and [review tasks](docs/agent-testing.md). CI runs these checks without model credentials.
 
+[Local fresh-clone validation receipt](docs/results/reproduction-2026-10-21.json):
+370 unit tests, 14 real Docker tests, 433 calibration checks, and both reference
+replay audits passed. This records local verification; GitHub CI is separate evidence.
+
 ## What the results mean
 
 The first frozen live pilot covered eight **Python** families × A/B/C once: 24

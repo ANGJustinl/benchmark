@@ -1,0 +1,68 @@
+{
+  "date": "2026-10-21",
+  "kind": "fresh_local_clone_and_virtualenv_reproduction",
+  "tested_commit": "828328f4482438b822736c4adfa15c28949cf5c9",
+  "package_source_sha256": "0a93357cc5e0261512e6a402457c0ef419e80a0f16726ba5ef1d7c8384a61b3b",
+  "model_api_calls": 0,
+  "unit": {
+    "tests": 370,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "docker": {
+    "tests": 14,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "tools": {
+    "python": "3.12.14",
+    "pytest": "9.1.1",
+    "node": "22.16.0",
+    "typescript": "5.8.3",
+    "go": "1.23.2",
+    "docker": "28.4.0"
+  },
+  "images": {
+    "python": "sha256:952ce2bf80aff7b67993258450443f1718da78c47e74dac5576ace04f346057e",
+    "typescript": "sha256:120ee406ca0ea0b6d6c8cab7ef519ac969502b7ebd344f237051ea9ec9cd7515",
+    "go": "sha256:059eb7b922ae26687303492fa703de2da5dc50e9d3d05d027275975729f31b1c",
+    "state": "sha256:952ce2bf80aff7b67993258450443f1718da78c47e74dac5576ace04f346057e"
+  },
+  "replay": {
+    "poly": {
+      "trajectories": 72,
+      "stages": 216,
+      "observations": 6318,
+      "audit_passed": true
+    },
+    "legacy": {
+      "trajectories": 18,
+      "stages": 54,
+      "observations": 2205,
+      "audit_passed": true
+    }
+  },
+  "wheel_outside_source_install": true,
+  "wheel_contains_both_license_notices": true,
+  "existing_output_rejected_without_overwrite": true,
+  "sanitized_analysis_recomputed": true,
+  "raw_local_test_outputs_published": false,
+  "github_ci_independently_executed": "Not claimed by this local receipt; check PR status separately",
+  "calibration": {
+    "evaluations": 360,
+    "checks": 433,
+    "passed": 433,
+    "failed": 0,
+    "unstable_artifact_stage_pairs": 0,
+    "model_api_calls": 0
+  },
+  "test_input_files_sha256": {
+    "scripts/reproduce.py": "b36141f5257c8e5efcf9a5612a14c2bbbe67d7e64e124f79d72dff1fb15b2eab",
+    "scripts/check_environment.py": "c405c102bc49d4fb7a59655d540aac874c283ce045ff5f60525532bd570f7f25",
+    "scripts/verify_import.py": "feb30ae4fc1dc2bcc649f709a27496e5d7b8e652d030da8bb25ce88353d103d1",
+    "scripts/build_runtime_images.py": "262737b36896b5fc162b5ebf5dc261d6777091592f3acdbf0c3bf2e857d9de5d",
+    "analysis/summarize.py": "b526b0881c7da511c7b3ccb8261814db98f1e493fcab5883ef7382db6b2f9ac3"
+  }
+}
