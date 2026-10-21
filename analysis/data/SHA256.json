@@ -1,7 +1,7 @@
 {
-  "cutoff-diagnostics.csv": "3cf5b62cdefc20e353e4acad813ea5d90c4d6136d483fc8a40ac88f6d950fd17",
+  "cutoff-diagnostics.csv": "8ecbc2249c0cc749d16ce2ca37d9875b675f4f712df26f8c1d10a9a3cb3922c0",
   "expected-summary.json": "4c8bd0981d157d6a985d0623b2008c2f04a8ba073f105278e7f933a52271c214",
-  "frozen-arms.csv": "7f39b900bcecc245122afdf07c6bfbec4ea618e356d3fe45648ed1d278b0464a",
-  "frozen-levels.csv": "921ac0a9f1e150ea277f4dba22346851d18a4225de4a1951b5199746c8c86eac",
-  "stages.csv": "f8bcbd3320c74653c1021507decba29bb97aa33f5466c9c23dfd78f7813f13f4"
+  "frozen-arms.csv": "cb647965ea06f126cc7f7d606be3e4735bceb8db37ffe1b078445f44f632f68f",
+  "frozen-levels.csv": "1c3ceb3013f99e6b852b67219828000f0c0019d4beb196770a8ea9b4676f65c7",
+  "stages.csv": "b3e52c31f3d1c6e4655ef441e4da300bcf8845fd630bec4bd4262edc56ff061b"
 }
