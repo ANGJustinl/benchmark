@@ -15,6 +15,10 @@ runtime definitions, examples, condition definitions, image builder and pyprojec
 Run python scripts/verify_import.py. No original workspace is required. Package
 bytes are unchanged; new docs/review scripts/CI are outside that fingerprint.
 
+One existing trailing space in changebench/codex_adapter.py is intentionally retained
+to preserve these exact bytes. It is a known inherited whitespace warning, not a
+new adapter edit.
+
 Old result trees, release wheels/hashes, private CLI traces, experiment-specific
 recovery scripts, virtualenvs and temporary outputs were not copied wholesale.
 Current analysis uses sanitized derived tables; see analysis/README.md for scope.

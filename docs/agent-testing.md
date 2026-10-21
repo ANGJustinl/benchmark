@@ -41,6 +41,14 @@ Do not count someone who inspected answers as a blinded participant on those tas
 Public old tasks are calibration material. New private holdouts stay on the evaluator
 side, outside participant tools' filesystem access.
 
+## 可直接交给审查 agent 的任务
+
+请检出本 PR 指定的最终提交，并记录 SHA。你的身份是评测器独立审查者，可以
+阅读参考答案；本任务不启动付费模型。按照 README 在新环境运行 unit、reference
+和 Docker 三层复现，再选择语义判定、未来需求泄漏、运行完整性中的一个方向找
+可复现问题。输出环境、命令、实际结果、最小复现和影响；无法执行的项目明确
+标注，不引用原作者的“通过”作为你的执行证据。不要把参考回放当模型成绩。
+
 ## Paid experiments are separate
 
 Do not launch historical bounded live examples. The generic null-limit runner is

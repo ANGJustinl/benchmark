@@ -4,7 +4,8 @@ The repository's original LICENSE is CC0 1.0 and is preserved unchanged.
 
 Imported ChangeBench v0.3.0 implementation, fixtures, tests, examples and historical
 documentation were supplied under the MIT License, copyright 2026 ChangeBench
-contributors. That notice is preserved in LICENSES/ChangeBench-MIT.txt. The original
+contributors. That notice is preserved in LICENSE.ChangeBench-MIT (also included
+by setuptools in built distributions). The original
 repository license does not remove the MIT notice applicable to imported material.
 
 New ChangeBench integration scripts and documentation in this import use the same
